@@ -82,7 +82,8 @@ function detV(){
 function editV(){
  const r=S.edit?S.recipes.find(x=>x.id==S.edit):{t:'',c:'Comida',min:20,kcal:0,ing:[],pas:[]};
  return `<h1>${S.edit?'Editar':'Nueva'} receta</h1>
- <div class="sec"><b>✨ Importar desde texto</b><p class="mu">Copia el texto de la publicación de TikTok, Facebook o una web y lo ordeno solo.</p><textarea id="raw" placeholder="Pega aquí la descripción o los comentarios del vídeo (con o sin enlace)…"></textarea><button class="g" onclick="parse()">Ordenar</button></div>
+ <div class="sec"><b>✨ Importar desde texto</b><p class="mu">Copia el texto de la publicación de TikTok, Facebook o una web y lo ordeno solo.</p><label class="g" style="display:block;text-align:center;padding:12px;border-radius:12px;margin:8px 0;cursor:pointer;background:var(--ac2);color:var(--ac);font-weight:600">📷 Importar desde captura<input type="file" accept="image/*" style="display:none" onchange="ocr(this.files[0])"></label><p id="ocrst" class="mu"></p>
+ <textarea id="raw" placeholder="Pega aquí la descripción o los comentarios del vídeo (con o sin enlace)…"></textarea><button class="g" onclick="parse()">Ordenar</button></div>
  <input id="t" placeholder="Título" value="${esc(r.t)}">
  <input id="url" type="url" placeholder="Enlace original (TikTok, Facebook, web…)" value="${esc(r.url||'')}">
  <select id="c">${CATS.map(c=>`<option ${c==r.c?'selected':''}>${c}</option>`).join('')}</select>
@@ -111,23 +112,33 @@ function saveR(id){
  if(id){Object.assign(S.recipes.find(x=>x.id==id),o)}else{S.recipes.unshift({id:Date.now(),fav:0,...o})}
  S.edit=null;save();render();
 }
+async function ocr(f){
+ if(!f)return;const st=$('#ocrst');st.textContent='Cargando lector de texto…';
+ try{
+  if(!window.Tesseract)await new Promise((ok,ko)=>{const x=document.createElement('script');x.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';x.onload=ok;x.onerror=ko;document.head.appendChild(x)});
+  const r=await Tesseract.recognize(f,'spa',{logger:m=>{if(m.status=='recognizing text')st.textContent='Leyendo… '+Math.round(m.progress*100)+'%'}});
+  $('#raw').value=r.data.text;st.textContent='Listo. Revisa los campos antes de guardar.';parse();
+ }catch(e){st.textContent='No se pudo leer la imagen. Comprueba la conexión e inténtalo de nuevo.'}
+}
 function parse(){
  let raw=$('#raw').value;if(!raw.trim())return;
  const um=raw.match(/https?:\/\/\S+/);if(um){$('#url').value=um[0];raw=raw.replace(/https?:\/\/\S+/g,'')}
- const clean=t=>t.replace(/#\S+/g,'').replace(/@\S+/g,'').replace(/\p{Extended_Pictographic}|\uFE0F/gu,'').replace(/^[-•*·▪️✔✅👉\d.)\s]+/,'').replace(/\s+/g,' ').trim();
+ const clean=t=>t.replace(/#\S+/g,'').replace(/@\S+/g,'').replace(/\p{Extended_Pictographic}|\uFE0F/gu,'').replace(/^\d+[.)]\s+/,'').replace(/^[^\p{L}\p{N}¡¿]+/u,'').replace(/\s+/g,' ').trim();
  const L=raw.split('\n').map(l=>l.trim()).filter(l=>l&&!/^[#@\s]/.test(l)||/^#?\s*(ingredientes|pasos)/i.test(l));
  if(!L.length)return;
  const H_I=/^(ingredientes|necesitas|lo que necesitas)/i,H_P=/^(pasos|preparaci|instrucciones|elaboraci|procedimiento|modo de)/i;
  const QTY=/^\s*[-•*·▪️✔✅]?\s*(\d+[.,/]?\d*\s*(g|gr|kg|ml|l|cl|cdas?|cdtas?|tazas?|vasos?|uds?|unidades|dientes|lonchas|rebanadas)?\b|un[ao]?s?\b|medio|media|1\/2|una pizca|al gusto|pizca)/i;
- const ing=[],pas=[];let mode='',title='';
+ const ing=[],pas=[];let mode='',title='';const hasH=L.some(l=>H_I.test(clean(l).toLowerCase().replace(/:/g,'')));
  L.forEach(l=>{
   const k=clean(l).toLowerCase().replace(/[:]/g,'');
   if(H_I.test(k)){mode='i';return}
   if(H_P.test(k)){mode='p';return}
   const c=clean(l);if(!c)return;
   if(!title){title=c.replace(/:$/,'').slice(0,80);return}
+  if(mode=='i'&&!QTY.test(l)&&c.length>45)mode='p';
   if(mode=='i')ing.push(c);
   else if(mode=='p')pas.push(c);
+  else if(hasH)return;
   else if(/^\s*\d+[.)]\s/.test(l)||c.length>70)pas.push(c);
   else if(QTY.test(l)||c.length<=45)ing.push(c);
   else pas.push(c);
