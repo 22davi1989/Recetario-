@@ -72,7 +72,7 @@ function detV(){
  const r=S.recipes.find(x=>x.id==S.open);
  return `<div class="top"><button class="g" onclick="S.open=null;render()">← Volver</button><button class="fav" onclick="tog(${r.id})">${r.fav?'★':'☆'}</button></div>
  <div class="em" style="border-radius:16px;margin:12px 0">${EMO[r.c]}</div><h1>${esc(r.t)}</h1>
- <p class="mu">${r.c} · ${r.min} min · ${r.kcal} kcal</p>
+ <p class="mu">${r.c} · ${r.min} min · ${r.kcal} kcal</p>${r.url?`<p><a href="${esc(r.url)}" target="_blank" rel="noopener" style="color:var(--ac)">🔗 Ver publicación original</a></p>`:''}
  <div class="sec"><b>Ingredientes</b>${r.ing.map(i=>`<div class="row"><span>${esc(i)}</span></div>`).join('')}
  <button style="margin-top:10px" onclick="addShop(${r.id})">🛒 Añadir a la compra</button></div>
  <div class="sec"><b>Pasos</b>${r.pas.map((p,i)=>`<p><b style="color:var(--ac)">${i+1}.</b> ${esc(p)}</p>`).join('')}</div>
@@ -82,8 +82,9 @@ function detV(){
 function editV(){
  const r=S.edit?S.recipes.find(x=>x.id==S.edit):{t:'',c:'Comida',min:20,kcal:0,ing:[],pas:[]};
  return `<h1>${S.edit?'Editar':'Nueva'} receta</h1>
- <div class="sec"><b>✨ Importar desde texto</b><p class="mu">Pega una receta (de una publicación o web) y la ordeno.</p><textarea id="raw" placeholder="Título, luego ingredientes y pasos…"></textarea><button class="g" onclick="parse()">Ordenar</button></div>
+ <div class="sec"><b>✨ Importar desde texto</b><p class="mu">Copia el texto de la publicación de TikTok, Facebook o una web y lo ordeno solo.</p><textarea id="raw" placeholder="Pega aquí la descripción o los comentarios del vídeo (con o sin enlace)…"></textarea><button class="g" onclick="parse()">Ordenar</button></div>
  <input id="t" placeholder="Título" value="${esc(r.t)}">
+ <input id="url" type="url" placeholder="Enlace original (TikTok, Facebook, web…)" value="${esc(r.url||'')}">
  <select id="c">${CATS.map(c=>`<option ${c==r.c?'selected':''}>${c}</option>`).join('')}</select>
  <input id="min" type="number" placeholder="Minutos" value="${r.min}"><input id="kcal" type="number" placeholder="Calorías" value="${r.kcal}">
  <textarea id="ing" placeholder="Ingredientes (uno por línea)">${esc(r.ing.join('\n'))}</textarea>
@@ -106,18 +107,32 @@ function addShop(id){const r=S.recipes.find(x=>x.id==id);r.ing.forEach(n=>{if(!S
 function addI(){const v=$('#ni').value.trim();if(v){S.shop.push({n:v,d:false});save();render()}}
 function lines(id){return $(id).value.split('\n').map(s=>s.trim()).filter(Boolean)}
 function saveR(id){
- const o={t:$('#t').value.trim()||'Sin título',c:$('#c').value,min:+$('#min').value||0,kcal:+$('#kcal').value||0,ing:lines('#ing'),pas:lines('#pas')};
+ const o={t:$('#t').value.trim()||'Sin título',c:$('#c').value,min:+$('#min').value||0,kcal:+$('#kcal').value||0,ing:lines('#ing'),pas:lines('#pas'),url:$('#url').value.trim()};
  if(id){Object.assign(S.recipes.find(x=>x.id==id),o)}else{S.recipes.unshift({id:Date.now(),fav:0,...o})}
  S.edit=null;save();render();
 }
 function parse(){
- const L=$('#raw').value.split('\n').map(s=>s.trim()).filter(Boolean);if(!L.length)return;
- const ing=[],pas=[];let mode='';
- L.slice(1).forEach(l=>{const k=l.toLowerCase().replace(/[:#*]/g,'');
-  if(/^ingredientes/.test(k)){mode='i';return}if(/^(pasos|preparaci|instrucciones|elaboraci)/.test(k)){mode='p';return}
-  const c=l.replace(/^[-•*\d.)\s]+/,'');
-  if(mode=='p'||(mode==''&&l.length>60))pas.push(c);else ing.push(c)});
- $('#t').value=L[0];$('#ing').value=ing.join('\n');$('#pas').value=pas.join('\n');
+ let raw=$('#raw').value;if(!raw.trim())return;
+ const um=raw.match(/https?:\/\/\S+/);if(um){$('#url').value=um[0];raw=raw.replace(/https?:\/\/\S+/g,'')}
+ const clean=t=>t.replace(/#\S+/g,'').replace(/@\S+/g,'').replace(/\p{Extended_Pictographic}|\uFE0F/gu,'').replace(/^[-•*·▪️✔✅👉\d.)\s]+/,'').replace(/\s+/g,' ').trim();
+ const L=raw.split('\n').map(l=>l.trim()).filter(l=>l&&!/^[#@\s]/.test(l)||/^#?\s*(ingredientes|pasos)/i.test(l));
+ if(!L.length)return;
+ const H_I=/^(ingredientes|necesitas|lo que necesitas)/i,H_P=/^(pasos|preparaci|instrucciones|elaboraci|procedimiento|modo de)/i;
+ const QTY=/^\s*[-•*·▪️✔✅]?\s*(\d+[.,/]?\d*\s*(g|gr|kg|ml|l|cl|cdas?|cdtas?|tazas?|vasos?|uds?|unidades|dientes|lonchas|rebanadas)?\b|un[ao]?s?\b|medio|media|1\/2|una pizca|al gusto|pizca)/i;
+ const ing=[],pas=[];let mode='',title='';
+ L.forEach(l=>{
+  const k=clean(l).toLowerCase().replace(/[:]/g,'');
+  if(H_I.test(k)){mode='i';return}
+  if(H_P.test(k)){mode='p';return}
+  const c=clean(l);if(!c)return;
+  if(!title){title=c.replace(/:$/,'').slice(0,80);return}
+  if(mode=='i')ing.push(c);
+  else if(mode=='p')pas.push(c);
+  else if(/^\s*\d+[.)]\s/.test(l)||c.length>70)pas.push(c);
+  else if(QTY.test(l)||c.length<=45)ing.push(c);
+  else pas.push(c);
+ });
+ $('#t').value=title;$('#ing').value=ing.join('\n');$('#pas').value=pas.join('\n');
 }
 render();
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
