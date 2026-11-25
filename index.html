@@ -82,7 +82,7 @@ function detV(){
 function editV(){
  const r=S.edit?S.recipes.find(x=>x.id==S.edit):{t:'',c:'Comida',min:20,kcal:0,ing:[],pas:[]};
  return `<h1>${S.edit?'Editar':'Nueva'} receta</h1>
- <div class="sec"><b>✨ Importar desde texto</b><p class="mu">Copia el texto de la publicación de TikTok, Facebook o una web y lo ordeno solo.</p><label class="g" style="display:block;text-align:center;padding:12px;border-radius:12px;margin:8px 0;cursor:pointer;background:var(--ac2);color:var(--ac);font-weight:600">📷 Importar desde captura<input type="file" accept="image/*" style="display:none" onchange="ocr(this.files[0])"></label><p id="ocrst" class="mu"></p>
+ <div class="sec"><b>✨ Importar desde texto</b><p class="mu">Copia el texto de la publicación de TikTok, Facebook o una web y lo ordeno solo.</p><label class="g" style="display:block;text-align:center;padding:12px;border-radius:12px;margin:8px 0;cursor:pointer;background:var(--ac2);color:var(--ac);font-weight:600">📷 Importar desde captura<input type="file" accept="image/*" style="display:none" onchange="ocr(this.files[0])"></label><p id="ocrst" class="mu">Consejo: recorta la captura para que solo se vea el texto de la receta.</p>
  <textarea id="raw" placeholder="Pega aquí la descripción o los comentarios del vídeo (con o sin enlace)…"></textarea><button class="g" onclick="parse()">Ordenar</button></div>
  <input id="t" placeholder="Título" value="${esc(r.t)}">
  <input id="url" type="url" placeholder="Enlace original (TikTok, Facebook, web…)" value="${esc(r.url||'')}">
@@ -123,25 +123,30 @@ async function ocr(f){
 function parse(){
  let raw=$('#raw').value;if(!raw.trim())return;
  const um=raw.match(/https?:\/\/\S+/);if(um){$('#url').value=um[0];raw=raw.replace(/https?:\/\/\S+/g,'')}
- const clean=t=>t.replace(/#\S+/g,'').replace(/@\S+/g,'').replace(/\p{Extended_Pictographic}|\uFE0F/gu,'').replace(/^\d+[.)]\s+/,'').replace(/^[^\p{L}\p{N}¡¿]+/u,'').replace(/\s+/g,' ').trim();
- const L=raw.split('\n').map(l=>l.trim()).filter(l=>l&&!/^[#@\s]/.test(l)||/^#?\s*(ingredientes|pasos)/i.test(l));
- if(!L.length)return;
- const H_I=/^(ingredientes|necesitas|lo que necesitas)/i,H_P=/^(pasos|preparaci|instrucciones|elaboraci|procedimiento|modo de)/i;
- const QTY=/^\s*[-•*·▪️✔✅]?\s*(\d+[.,/]?\d*\s*(g|gr|kg|ml|l|cl|cdas?|cdtas?|tazas?|vasos?|uds?|unidades|dientes|lonchas|rebanadas)?\b|un[ao]?s?\b|medio|media|1\/2|una pizca|al gusto|pizca)/i;
- const ing=[],pas=[];let mode='',title='';const hasH=L.some(l=>H_I.test(clean(l).toLowerCase().replace(/:/g,'')));
+ const clean=t=>t.replace(/#\S+/g,'').replace(/@\S+/g,'').replace(/\p{Extended_Pictographic}|\uFE0F/gu,'').replace(/^\d+[.)]\s+/,'').replace(/^[^\p{L}\p{N}¡¿]+/u,'')
+  .replace(/\s+\d+([.,]\d+)?\s*mil\s*$/i,'').replace(/\s*\([a-z]{1,4}\)\s*$/i,'').replace(/\s+[vw|»«©®]$/i,'').replace(/^[A-Za-z¥]\s+(?=\p{Lu}\p{Ll})/u,'').replace(/\s+/g,' ').trim();
+ const L=raw.split('\n').map(l=>l.trim()).filter(l=>l&&(l.match(/\p{L}/gu)||[]).length>=3);
+ const key=l=>clean(l).toLowerCase().replace(/:/g,'');
+ const isI=l=>{const k=key(l);return /ingredientes|necesitas/.test(k)&&k.length<=28};
+ const isP=l=>{const k=key(l);return /^(pasos|preparaci|instrucciones|elaboraci|procedimiento|modo de)/.test(k)&&k.length<=28};
+ const QTY=/^\s*[^\p{L}\p{N}]*(\d+[.,/]?\d*\s*(g|gr|kg|ml|l|cl|cdas?|cdtas?|tazas?|vasos?|uds?|unidades|dientes|lonchas|rebanadas)?\b|un[ao]?s?\b|medio|media|1\/2|una pizca|al gusto|pizca)/iu;
+ const VERB=/^(mezcla|mezclar|vierte|verter|bate|batir|hornea|hornear|añade|añadir|pon|poner|mete|meter|cocina|cocinar|cocer|calienta|calentar|corta|cortar|pela|pelar|remueve|incorpora|deja|déjalo|déjala|precalienta|tritura|amasa|sirve|fríe|freír|saltea|hierve|cuece|agrega|une|forra|unta|engrasa|lava|escurre|coloca|monta|bate)\b/i;
+ const WRAP=/\b(de|del|con|y|o|la|el|los|las|para|a|en|un|una|al|que|por|se|es|unas|unos|su|tu)$/i;
+ const hasH=L.some(isI);
+ const ing=[],pas=[];let mode='',title='';
+ const push=(arr,c)=>{if(arr.length&&/^\p{L}/u.test(c)&&WRAP.test(arr[arr.length-1]))arr[arr.length-1]+=' '+c;else arr.push(c)};
  L.forEach(l=>{
-  const k=clean(l).toLowerCase().replace(/[:]/g,'');
-  if(H_I.test(k)){mode='i';return}
-  if(H_P.test(k)){mode='p';return}
-  const c=clean(l);if(!c)return;
-  if(!title){title=c.replace(/:$/,'').slice(0,80);return}
-  if(mode=='i'&&!QTY.test(l)&&c.length>45)mode='p';
-  if(mode=='i')ing.push(c);
-  else if(mode=='p')pas.push(c);
+  if(isI(l)){mode='i';return}
+  if(isP(l)){mode='p';return}
+  const c=clean(l);if(!c||(c.match(/\p{L}/gu)||[]).length<3)return;
+  if(!title&&!/^\d{1,2}:\d{2}/.test(l)&&(c.match(/\p{L}/gu)||[]).length>=8&&c.length<=40&&/^\p{Lu}/u.test(c)){title=c.replace(/:$/,'');if(!hasH)return}
+  if(mode=='i'&&(VERB.test(c)||(!QTY.test(l)&&c.length>45)))mode='p';
+  if(mode=='i')push(ing,c);
+  else if(mode=='p')push(pas,c);
   else if(hasH)return;
-  else if(/^\s*\d+[.)]\s/.test(l)||c.length>70)pas.push(c);
-  else if(QTY.test(l)||c.length<=45)ing.push(c);
-  else pas.push(c);
+  else if(/^\s*\d+[.)]\s/.test(l)||c.length>70||VERB.test(c))push(pas,c);
+  else if(QTY.test(l)||c.length<=45)push(ing,c);
+  else push(pas,c);
  });
  $('#t').value=title;$('#ing').value=ing.join('\n');$('#pas').value=pas.join('\n');
 }
